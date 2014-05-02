@@ -17,6 +17,7 @@
 #include <sstream>
 
 #include <stdlib.h>
+#include <string>
 
 namespace utility 
 {
@@ -48,37 +49,7 @@ class Timer
    double getElapsedTimeInMicroSec();          // get elapsed time in micro-second
    void restart();
 
-   std::string display() {
-    double seconds = getElapsedTime();
-    std::ostringstream result;
-    if (seconds > 1) {      
-      long secs = seconds / (long)1;
-      int hours = (secs / 3600);
-      int minutes = (secs / 60) % 60;
-      int s = secs % 60;
-      result << hours << " (hours), " << minutes << " (minutes) " << s << " (seconds).";
-    }
-    else {
-      result << seconds << " (seconds).";
-    }
-    return result.str();
-  }
-  
-  static std::string display( double seconds ) {
-    //double seconds = getElapsedTime();
-    std::ostringstream result;
-    if (seconds > 1) {      
-      long secs = seconds / (long)1;
-      int hours = (secs / 3600);
-      int minutes = (secs / 60) % 60;
-      int s = secs % 60;
-      result << hours << " (hours), " << minutes << " (minutes) " << s << " (seconds).";
-    }
-    else {
-      result << seconds << " (seconds).";
-    }
-    return result.str();
-  }
+  std::string display();
   
  protected:
  private:
@@ -97,7 +68,22 @@ class Timer
 #endif
 };
 
-
+inline static std::string timeDisplay( double seconds ) {
+  std::ostringstream result;
+  if (seconds > 1) {      
+    long secs = seconds / (long)1;
+    int hours = (secs / 3600);
+    int minutes = (secs / 60) % 60;
+    int s = secs % 60;
+    result << hours << " (hours), " << minutes << " (minutes) " << s << " (seconds).";
+  }
+  else {
+    result << seconds << " (seconds).";
+  }
+  return result.str();
+}
 
 }; //namespace internal_tools
+
+
 #endif // LATENT_TREE_MODEL_ENUMUTILS_HPP

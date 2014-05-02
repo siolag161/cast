@@ -9,6 +9,8 @@
 #define _MAIN_HPP
 
 #include "Matrix.hpp"
+#include "CAST.hpp"
+
 class ApplicationOptions;
 
 //typedef fltm::Matrix<int> Matrix;
@@ -27,10 +29,9 @@ struct ConstraintMap {
 
 typedef std::vector < std::vector <int> > Matrix;
 
- inline Matrix* loadDataTable( const std::string& file_name,
-     const bool& hasHeader,
-     const char& sep = ',',
-     const char& quote = '"');
+inline std::shared_ptr<Matrix> loadDataTable( const std::string& file_name,
+                                              const char& sep = ',',
+                                              const char& quote = '"' );
 
 ///////////////////////////////////////////////////////
 inline void loadLabelPosition( std::vector<Label>& labels,
@@ -39,19 +40,16 @@ inline void loadLabelPosition( std::vector<Label>& labels,
 
 /////////////////////////////////////////////////////// 
 void checkInputFile(const std::string& inputFileName);
-
 ApplicationOptions getProgramOptions(int argc, char** argv);
 
-/** reminder: by default sep = ',' while quote = '"'
- */
-// Matrix loadDataTable( const std::string& infile,
-//                       const bool& hasHeader,
-//                       const char& sep,
-//                       const char& quote);
 
-void loadLabelPosition( std::vector<Label> & labels,
-                        std::vector<Position>& positions,
-                        const std::string& infile );
+void saveClustering( const fltm::CAST_Partition& clustering, const unsigned currentSize, std::string clustFN ) ;
+void saveStatistics( const fltm::CAST_Partition& clustering, const float score, const float elapsedTime, std::string statisticFN );
+////////////////////////////// RANGE_ITERATOR ///////////////////////////////////////////
+struct Clust_CAST_Opt {
+  Clust_CAST_Opt(unsigned mD, float s, float c): maxDist(mD), simi(s), cast(c) {}
+  unsigned maxDist; float simi; float cast;
+};
 
 /****************************************************************************************/
 #endif // _MAIN_HPP

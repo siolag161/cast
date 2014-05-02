@@ -12,6 +12,8 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <memory>
+
 namespace fltm {
 
 template<typename ItemType>
@@ -52,7 +54,7 @@ template<typename ItemType>
 class Partition {
  public:
   typedef Cluster<ItemType> cluster_type;
-  typedef Cluster<ItemType>* cluster_ptr;
+  typedef std::unique_ptr< Cluster<ItemType> > cluster_ptr;
 
   typedef std::map< std::string, cluster_ptr> Name2Cluster;
 
@@ -63,9 +65,10 @@ class Partition {
   Partition( const Name2Cluster& name2Clust ): name2Cluster(name2Clust) {}  
   Partition() {}
 
-  Partition& insert(const cluster_ptr cluster)
+  Partition& insert( cluster_ptr cluster)
   {
-    name2Cluster[cluster->get_name()] = cluster;
+    //name2Cluster[cluster->get_name()] = cluster;
+    name2Cluster.insert( std::make_pair(cluster->get_name(), std::move(cluster)) );
     return *this;
   }
   
@@ -79,13 +82,6 @@ class Partition {
 
   const_iterator begin() const { return name2Cluster.begin(); }
   const_iterator end() const { return name2Cluster.end(); }
-
-
-  ~Partition() {
-    for ( typename Name2Cluster::iterator it = name2Cluster.begin(); it != name2Cluster.end(); ++it) {
-      delete it->second;
-    }
-  }
   
  protected:
   Name2Cluster name2Cluster;

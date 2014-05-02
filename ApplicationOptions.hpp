@@ -12,13 +12,23 @@ struct ApplicationOptions
 {
   std::string dataInFile; // input filename
   std::string labPosInFile; // input filename
+
+  std::string outputDir; // input filename
+
   
   int hasHeader; // indicates whether the input file contains a header row
 
-  double thresCAST; // threshold for CAST algorithm computation
-  double thresSimMatrix; // threshold for the similarity matrix, necessary for the execution of FHLCM
+  float CAST_min;
+  float CAST_max;
+  float CAST_step;
 
-  unsigned maxDistance;
+  float simi_min;
+  float simi_max;
+  float simi_step;
+
+  unsigned maxDist_min;
+  unsigned maxDist_max;
+  unsigned maxDist_step;
 
   ApplicationOptions(): hasHeader(true) {}
 };

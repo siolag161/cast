@@ -31,14 +31,16 @@ typedef std::map< unsigned, float > SimiCache;
 typedef std::vector < std::vector <int> > Matrix;
 
 
-
 struct SimilarityCompute {
-  explicit SimilarityCompute( const Positions& position, Matrix* matrix, float simiThres,  unsigned maxDist );
+  explicit SimilarityCompute( const Positions& position,
+                              const Matrix& matrix,
+                              float simiThres,
+                              unsigned maxDist );
   virtual ~SimilarityCompute() {}
   virtual float operator()( unsigned, unsigned );
  protected:
   const Positions& positions;
-  const Matrix* matrix;
+  const Matrix& matrix;
   float simiThres;
   unsigned maxDist;  
 
@@ -54,13 +56,19 @@ typedef Cluster < CAST_Item > CAST_Cluster;
 
 typedef std::map< unsigned, std::map<unsigned, double> > SimiMatrix;
 
+
+// template<class T>
+// class std::unique_ptr<T>;
+
 struct CAST {
+  typedef std::unique_ptr<CAST_Partition> partition_ptr;
   CAST (const double& thres): thresCAST(thres) {}  
-  CAST_Partition* operator()( SimilarityCompute* simCompute, const std::vector<unsigned>& localGlobal);
-  
+  partition_ptr operator()( SimilarityCompute& simCompute,
+                                              const std::vector<unsigned>& localGlobal);  
   
  protected:  
-  CAST_Partition* performClustering( SimilarityCompute* simCompute, CAST_Cluster& unassignedCluster);
+  partition_ptr performClustering( SimilarityCompute& simCompute,
+                                                     CAST_Cluster& unassignedCluster);
 
  protected:
   float thresCAST;
@@ -78,18 +86,16 @@ inline void resetAffinity( CAST_Cluster& cluster);
 
 
 void addGoodItem( CAST_Cluster& unassignedCluster, CAST_Cluster& openCluster, 
-                  SimilarityCompute* simMatrix, const Index clusterIdx );
+                  SimilarityCompute& simMatrix, const Index clusterIdx );
 
 void removeBadItem( CAST_Cluster& unassignedCluster, CAST_Cluster& openCluster, 
-                    SimilarityCompute* simMatrix, const Index clusterIdx );
+                    SimilarityCompute& simMatrix, const Index clusterIdx );
 
 void updateClustersAffinity( CAST_Cluster& sourceCluster, CAST_Cluster& targetCluster, 
-                             SimilarityCompute* simMatrix,
+                             SimilarityCompute& simMatrix,
                              const Index clusterIndex );
 
 void moveItemBetweenClusters( CAST_Cluster& source, CAST_Cluster& target, const Index clusterIndex );
-
-// double getSimilarity( SimiMatrix& simMat, const Index& varA, const Index& varB);
 
 
 } // namespace ends here. 

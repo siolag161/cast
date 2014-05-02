@@ -5,6 +5,7 @@
 #include "DataTable.hpp"
 #include "CSVParser.hpp"
 #include "DataTransformation.hpp"
+#include "Range.hpp"
 
 #include "main.hpp"
 
@@ -18,59 +19,55 @@
 #include "CAST.hpp"
 namespace utl = utility;
 namespace po = boost::program_options;   
+using namespace fltm;     
+
+typedef utility::Range<float, utility::ITER_TYPE_ADD> FloatRange;
+typedef utility::Range<unsigned, utility::ITER_TYPE_ADD> IntRange;
+
+CAST::partition_ptr performClustering( const Matrix& matrix,
+                                       const std::vector<Position> positions,
+                                       const Clust_CAST_Opt& opt );
+
+float evaluateClustering( const CAST_Partition& clustering);
+void saveResults( ApplicationOptions& progOps,
+                  Clust_CAST_Opt& opt,
+                  const CAST_Partition& clustering,
+                  const unsigned currentSize,
+                  const float score,
+                  const double elapsedTime );
+
 
 int main(int argc, char** argv) {
+  
+  ApplicationOptions progOpt = getProgramOptions(argc, argv);
 
   utl::Timer timer; timer.start();
-  const ApplicationOptions progOpt = getProgramOptions(argc, argv); // get user options
-
-   
   std::vector<Label> labels; std::vector<Position> positions;
-  loadLabelPosition( labels, positions, progOpt.labPosInFile );
   std::cout << "loading data from " <<  progOpt.dataInFile << std::endl; // todo: logging
-
-  Matrix* matrix = loadDataTable ( progOpt.dataInFile, progOpt.hasHeader); // load data into the the dataMat
+  std::shared_ptr<Matrix> matrix = loadDataTable ( progOpt.dataInFile );
+  loadLabelPosition( labels, positions, progOpt.labPosInFile );
   std::cout << "data loaded. rows: " << utl::nrow(*matrix) << ", columns: "
             << utl::ncol(*matrix) << ". takes: " <<  timer.display() << std::endl << std::endl; // todo: logging
   timer.restart();
- 
-   std::vector<unsigned> labelMap; for (unsigned i = 0; i < labels.size(); ++i) labelMap.push_back(i);
 
+  FloatRange rangeCAST( progOpt.CAST_min, progOpt.CAST_max, progOpt.CAST_step );
+  FloatRange rangeSimi( progOpt.simi_min, progOpt.simi_max, progOpt.simi_step );
+  IntRange rangeMaxDist( progOpt.maxDist_min, progOpt.maxDist_max, progOpt.maxDist_step );
 
-  fltm::SimilarityCompute* simiCompute = new fltm::SimilarityCompute( positions, matrix,  progOpt.thresSimMatrix, progOpt.maxDistance );
-      
-  timer.restart();
-  fltm::CAST clusteringCAST (progOpt.thresCAST) ;
-  std::cout << "start clustering..." << std::endl;
-  fltm::CAST_Partition* clustering = clusteringCAST( simiCompute, labelMap );
-   std::cout << "end clustering. gives: " << clustering->size() 
-             << ". takes: " <<  timer.display() << std::endl;
-
-   // delete matrix;
-   // delete simiCompute;
-   getchar();
-  // clt::CAST<unsigned, unsigned> clusteringCAST( progOpt.thresCAST );  
-  // ClusterResultPointer clustering = clusteringCAST( simiMat, labelMap );  
-
-  // std::cout << "clustering data gives: " << clustering->size() << std::endl;
-
-  // char statisticFN[256], resultFN[256];
-  // setOutputNames( statisticFN, resultFN );
-  // std::ofstream resultOut(resultFN), statOut(statisticFN);
-
-  // statOut << "CAST clustering with parameters:  "
-  //         << "Data input: " << progOpt.dataInFile  << ", "
-  //         << "Label-Post input: " << progOpt.labPosInFile <<  ", "
-  //         << "Max distance: " << progOpt.maxDistance <<  ", "
-  //         << "CAST threshold: " << progOpt.thresCAST << std::endl << std::endl;  
-  // statOut << "Obtains:  " << clustering->size() << " clusters. Takes: " << timer.display() << std::endl;
+  std::vector<float> scores;
+  std::vector<Clust_CAST_Opt> opts;
   
-  // outputClustering(clustering, resultOut, labels.size());
-  // resultOut.close(); statOut.close();
-
-  // evaluateClustering( clustering, labelMap.size() );
-
-  return 0;
+  for ( auto maxDist: rangeMaxDist )
+    for ( auto simi: rangeSimi ) 
+      for ( auto cast: rangeCAST ) {
+        Clust_CAST_Opt option(maxDist, simi, cast);
+        auto clustering = performClustering( *matrix, positions, option );
+        auto score = evaluateClustering( *clustering );
+        scores.push_back(score); opts.push_back(option);
+        saveResults( progOpt, option, *clustering, positions.size(), score, timer.getElapsedTimeInSec() );
+        timer.restart();
+      }
+  
 }
 
 
@@ -87,14 +84,21 @@ ApplicationOptions getProgramOptions(int argc, char** argv)
     optDesc.add_options()
         ("help,h", "Print help messages")
         ("dinput,i", po::value<std::string>(&result.dataInFile)->required(), "Data Input filename")
-        ("lpinput", po::value<std::string>(&result.labPosInFile)->required(), "Label-Pos Input filename")        
-        ("header,d", po::value<int>(&result.hasHeader)->default_value(0), "Indicates whether the "
-         "input file has header row. false by default")
-        ("maxdist,m", po::value<unsigned>(&result.maxDistance)->default_value(0), "max distance threshold of"
-         "two consecutive SNPs to be considered") 
-        ("simithres", po::value<double>(&result.thresSimMatrix)->default_value(0), "Similarity matrix threshold") 
-  
-        ("cast", po::value<double>(&result.thresCAST)->default_value(0.0), "CAST threshold")
+        ("lpinput", po::value<std::string>(&result.labPosInFile)->required(), "Label-Pos Input filename")
+        ("outputDir", po::value<std::string>(&result.outputDir)->required(), "Output Directory")
+
+        ("minCast", po::value<float>(&result.CAST_min)->required(), "Min CAST")
+        ("maxCast", po::value<float>(&result.CAST_max)->required(), "Max CAST")
+        ("stepCast", po::value<float>(&result.CAST_step)->required(), "Step CAST")
+
+        ("minSimi", po::value<float>(&result.simi_min)->required(), "Min Similarity")
+        ("maxSimi", po::value<float>(&result.simi_max)->required(), "Max Similarity")
+        ("stepSimi", po::value<float>(&result.simi_step)->required(), "Step Similarity")
+
+        ("minMaxDist", po::value<unsigned>(&result.maxDist_min)->required(), "Min - Max Distance ")
+        ("maxMaxDist", po::value<unsigned>(&result.maxDist_max)->required(), "Max - Max Distance")
+        ("stepMaxDist", po::value<unsigned>(&result.maxDist_step)->required(), "Step - Max Distance")
+
         ;
     po::variables_map vm; 
     try { 
@@ -110,8 +114,8 @@ ApplicationOptions getProgramOptions(int argc, char** argv)
     {
       rad::OptionPrinter::formatRequiredOptionError(e);
       std::cout << e.what() << std::endl << std::endl;
-      rad::OptionPrinter::printStandardAppDesc(appName,std::cout,
-                                               optDesc, NULL);
+      rad::OptionPrinter::printStandardAppDesc( appName,std::cout,
+                                                optDesc, NULL);
       exit(-1);
     }
 
@@ -130,19 +134,15 @@ ApplicationOptions getProgramOptions(int argc, char** argv)
 
 
 
-Matrix* loadDataTable( const std::string& infile, const bool& hasHeader,
-                      const char& sep, const char& quote)
+std::shared_ptr<Matrix> loadDataTable( const std::string& infile, const char& sep, const char& quote)
 {
 
-  Matrix* dt = new Matrix();
+  std::shared_ptr<Matrix> dt( new Matrix() );
   dt->reserve(100000);
-
   std::ifstream matrixFile(infile.c_str());
   if (!matrixFile) return dt;
-  utl::CSVIterator<int> matrixLine(matrixFile);
   
-  if (hasHeader)
-    ++matrixLine;
+  utl::CSVIterator<int> matrixLine(matrixFile);
   
   for( ; matrixLine != utl::CSVIterator<int>(); ++matrixLine ) {         
     std::vector<int> row(matrixLine->size(), 0);
@@ -152,7 +152,8 @@ Matrix* loadDataTable( const std::string& infile, const bool& hasHeader,
     dt->push_back(row);    
   }
 
-  dt->resize(dt->size());
+  //dt->resize(dt->size());
+  std::cout << "done loading data" << std::endl << std::endl;
   return dt;
 }
 
@@ -173,4 +174,95 @@ void loadLabelPosition( std::vector<Label> & labels,
   }
 
   std::cout << "load " << labels.size() << " variables.\n";
+}
+
+////////////////////////////////////////////////////////
+CAST::partition_ptr performClustering( const Matrix& matrix,
+                                       const std::vector<Position> positions,
+                                       const Clust_CAST_Opt& opt ) {
+  char opts[256];
+  sprintf(opts, "simi: %.2f, maxDist: %d, cast: %.2f", opt.simi, opt.maxDist, opt.cast);
+  std::cout << " performing clustering - " << opts << std::endl;
+  SimilarityCompute simiCompute( positions, matrix, opt.simi, opt.maxDist );  
+  CAST clusteringCAST( opt.cast ) ;
+  std::vector<unsigned> labelMap; for (unsigned i = 0; i < positions.size(); ++i) labelMap.push_back(i);
+
+  CAST::partition_ptr clustering = clusteringCAST( simiCompute, labelMap );
+  std::cout << "nbr clusters obtained = " << clustering->size() << std::endl << std::endl;
+  
+  return clustering;
+}
+
+float evaluateClustering( const CAST_Partition& clustering) {
+  return 0.0;
+}
+
+void saveResults( ApplicationOptions& progOpt,
+                  Clust_CAST_Opt& opt,
+                  const CAST_Partition& clustering,
+                  const unsigned currentSize,
+                  const float score,
+                  const double elapsedTime )
+{
+    
+  boost::filesystem::path outputPath = boost::filesystem::absolute(progOpt.outputDir);
+
+  char cast_clustering_fn[256], cast_statistics_fn[256];
+  char optBuf[80]; char timeBuf[80];
+
+  time_t now = time(0); struct tm tstruct;
+  tstruct = *localtime(&now);
+  
+  strftime(timeBuf, sizeof(timeBuf), "%Y_%m_%d_%H_%M_%S", &tstruct);
+  sprintf( optBuf, "%.2f_%d_%.2f", opt.simi, opt.maxDist, opt.cast );  
+
+  sprintf( cast_statistics_fn, "CAST_statistics_%s.csv", optBuf );  
+  sprintf( cast_clustering_fn, "CAST_clustering_%s.csv", optBuf );
+
+  outputPath /= timeBuf;
+  boost::filesystem::create_directories(outputPath);
+  saveClustering( clustering, currentSize, (outputPath / cast_clustering_fn).string() ) ;
+  saveStatistics( clustering, score, elapsedTime, (outputPath / cast_statistics_fn).string() );
+}
+
+
+////////////////////////////////////////////////////////////////////
+static const std::string ID = "id"; static const std::string LABEL = "label";
+static const std::string LATENT = "latent"; static const std::string PARENT = "parent";
+static const std::string LEVEL = "level"; static const std::string POSITION = "position";
+static const std::string CARDINALITY = "cardinality";
+static const std::string PARENT_ID = "parent_id";
+static const char SEPARATOR = ',';
+
+void saveClustering( const CAST_Partition& clustering, const unsigned currentSize, std::string clustFN )  {
+  size_t currentLatentIndex = currentSize;
+  std::ofstream clustOut;
+  clustOut << ID << SEPARATOR << LATENT << SEPARATOR << PARENT << SEPARATOR
+           << LEVEL << SEPARATOR << CARDINALITY << "\n";  // writes header
+
+  std::cout << "saving clustering with " << currentSize << " into " << clustFN << std::endl;
+  for ( auto iter = clustering.begin(); iter != clustering.end(); ++iter ) {
+    for ( auto citer = iter->second->begin(); citer != iter->second->end(); ++citer ) {
+      clustOut << citer->globalIndex << SEPARATOR << 0 << SEPARATOR <<  currentLatentIndex << SEPARATOR
+               << 0 << SEPARATOR << 2 << std::endl;  // writes header
+    }
+    ++currentLatentIndex;
+  }
+
+  for (size_t latentId = currentSize; latentId < currentLatentIndex; ++latentId) {
+    clustOut << latentId << SEPARATOR << 1 << SEPARATOR << -1 << SEPARATOR
+             << 1 << SEPARATOR << 2 << std::endl;  // writes header
+  }
+
+  clustOut.close();
+}
+
+void saveStatistics( const CAST_Partition& clustering, const float score, const float elapsedTime, std::string statisticFN ) {
+  std::cout << "saving statistics into: " << statisticFN << std::endl;
+
+  std::ofstream statOut(statisticFN);
+  std::cout << "CAST clustering gives: 0 " << clustering.size() << " clusters. "
+            << "Scores: " << score << ". "
+            << "Takes: " << utility::timeDisplay(elapsedTime) << std::endl;
+  statOut.close();
 }

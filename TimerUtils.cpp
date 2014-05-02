@@ -1,6 +1,8 @@
 
 #include "TimerUtils.hpp"
 
+#include <string>
+
 namespace utility 
 {
 
@@ -81,6 +83,11 @@ void Timer::restart()
 {
   stop();
   start();
-}  
+}
 
+std::string Timer::display() { 
+  double seconds = getElapsedTime();
+  return (timeDisplay(seconds));
+}
+ 
 }

@@ -28,8 +28,8 @@ CAST::partition_ptr performClustering( const Matrix& matrix,
                                        const std::vector<Position> positions,
                                        const Clust_CAST_Opt& opt );
 
-float evaluateClustering( const CAST_Partition& clustering);
-void saveResults( ApplicationOptions& progOps,
+float evaluateClustering( const CAST_Partition& clustering, unsigned nbrVars );
+void saveResults( boost::filesystem::path& path,
                   Clust_CAST_Opt& opt,
                   const CAST_Partition& clustering,
                   const unsigned currentSize,
@@ -41,7 +41,7 @@ int main(int argc, char** argv) {
   
   ApplicationOptions progOpt = getProgramOptions(argc, argv);
 
-  utl::Timer timer; timer.start();
+  utl::Timer timer, totalTimer; timer.start(); totalTimer.start();
   std::vector<Label> labels; std::vector<Position> positions;
   std::cout << "loading data from " <<  progOpt.dataInFile << std::endl; // todo: logging
   std::shared_ptr<Matrix> matrix = loadDataTable ( progOpt.dataInFile );
@@ -50,24 +50,60 @@ int main(int argc, char** argv) {
             << utl::ncol(*matrix) << ". takes: " <<  timer.display() << std::endl << std::endl; // todo: logging
   timer.restart();
 
+  boost::filesystem::path outputPath = boost::filesystem::absolute(progOpt.outputDir);
+  char timeBuf[80];  
+  time_t now = time(0); struct tm tstruct;
+  tstruct = *localtime(&now);  
+  strftime(timeBuf, sizeof(timeBuf), "%Y_%m_%d_%H_%M_%S", &tstruct);
+  outputPath /= timeBuf;
+  boost::filesystem::create_directories(outputPath);
+
   FloatRange rangeCAST( progOpt.CAST_min, progOpt.CAST_max, progOpt.CAST_step );
   FloatRange rangeSimi( progOpt.simi_min, progOpt.simi_max, progOpt.simi_step );
   IntRange rangeMaxDist( progOpt.maxDist_min, progOpt.maxDist_max, progOpt.maxDist_step );
 
-  std::vector<float> scores;
-  std::vector<Clust_CAST_Opt> opts;
-  
-  for ( auto maxDist: rangeMaxDist )
-    for ( auto simi: rangeSimi ) 
+  std::vector<float> scores; std::vector<Clust_CAST_Opt> opts; std::vector<double> times;
+
+  for ( auto maxDist: rangeMaxDist ) {
+    for ( auto simi: rangeSimi ) {
       for ( auto cast: rangeCAST ) {
         Clust_CAST_Opt option(maxDist, simi, cast);
         auto clustering = performClustering( *matrix, positions, option );
-        auto score = evaluateClustering( *clustering );
-        scores.push_back(score); opts.push_back(option);
-        saveResults( progOpt, option, *clustering, positions.size(), score, timer.getElapsedTimeInSec() );
+        auto score = evaluateClustering( *clustering, positions.size() );
+        scores.push_back(score);
+        opts.push_back(option);
+        saveResults( outputPath, option, *clustering, positions.size(),
+                     score, timer.getElapsedTimeInSec() );
+        times.push_back(timer.getElapsedTimeInSec());
         timer.restart();
       }
+    } 
+  }
+
   
+  unsigned bestIdx = 0;
+  for (auto idx: IntRange(0, scores.size(), 1) ) {
+    if ( scores.at(bestIdx) > scores.at(idx) ) {
+      bestIdx = idx;
+    }
+  }
+
+  std::ofstream finalReport( (outputPath / "finalReport.txt").string());
+  char bestOpts[256];
+  sprintf(bestOpts, "(simi: %.2f, maxDist: %d, cast: %.2f)", opts[bestIdx].simi,  opts[bestIdx].maxDist,  opts[bestIdx].cast);
+  
+  finalReport << "Executes: " << scores.size() << " cluster analysis.\n"
+              << "Takes: " << totalTimer.display() << ".\n"
+              << "Clustering with the best result: "
+              << bestOpts << " with a score of: " << scores[bestIdx] << std::endl << std::endl << std::endl;
+
+  for (auto idx: IntRange(0, scores.size(), 1) ) {
+    char optChr[256];
+    sprintf(optChr, "(simi: %.2f, maxDist: %d, cast: %.2f)", opts[idx].simi,  opts[idx].maxDist,  opts[idx].cast); 
+    finalReport << optChr << " --- yields: " << scores[idx] << " --- takes: " << utility::timeDisplay(times[idx]) << std::endl;
+    
+  }
+  finalReport.close();
 }
 
 
@@ -152,7 +188,7 @@ std::shared_ptr<Matrix> loadDataTable( const std::string& infile, const char& se
     dt->push_back(row);    
   }
 
-  //dt->resize(dt->size());
+  dt->resize(dt->size());
   std::cout << "done loading data" << std::endl << std::endl;
   return dt;
 }
@@ -180,47 +216,53 @@ void loadLabelPosition( std::vector<Label> & labels,
 CAST::partition_ptr performClustering( const Matrix& matrix,
                                        const std::vector<Position> positions,
                                        const Clust_CAST_Opt& opt ) {
-  char opts[256];
-  sprintf(opts, "simi: %.2f, maxDist: %d, cast: %.2f", opt.simi, opt.maxDist, opt.cast);
-  std::cout << " performing clustering - " << opts << std::endl;
   SimilarityCompute simiCompute( positions, matrix, opt.simi, opt.maxDist );  
   CAST clusteringCAST( opt.cast ) ;
   std::vector<unsigned> labelMap; for (unsigned i = 0; i < positions.size(); ++i) labelMap.push_back(i);
-
-  CAST::partition_ptr clustering = clusteringCAST( simiCompute, labelMap );
-  std::cout << "nbr clusters obtained = " << clustering->size() << std::endl << std::endl;
-  
+  CAST::partition_ptr clustering = clusteringCAST( simiCompute, labelMap );  
   return clustering;
 }
 
-float evaluateClustering( const CAST_Partition& clustering) {
-  return 0.0;
+float evaluateClustering( const CAST_Partition& clustering, unsigned nbrVars ) {
+
+  if (nbrVars <= 1 ) return 0.0;
+  const unsigned cltSz = clustering.size();
+  std::vector<unsigned> index2Cluster( nbrVars, -1);
+  std::vector<unsigned> cluster2Index( cltSz, 0);
+    
+  unsigned clusterIdx = 0;
+  for ( auto iter = clustering.begin(); iter != clustering.end(); ++iter ) {
+    for ( auto citer = iter->second->begin(); citer != iter->second->end(); ++citer) {
+      index2Cluster[ citer->globalIndex ] = clusterIdx;
+    }
+    ++clusterIdx;
+  }
+
+  int diffCount = 0;
+  for ( unsigned idx = 1; idx < nbrVars; ++idx ) {
+    if ( index2Cluster[idx] != index2Cluster[idx - 1] ) {
+      ++diffCount;
+    }
+  }
+
+  float eval = (diffCount +1 - cltSz)*1.0 / (diffCount);
+  return eval;
 }
 
-void saveResults( ApplicationOptions& progOpt,
+void saveResults( boost::filesystem::path& outputPath,
                   Clust_CAST_Opt& opt,
                   const CAST_Partition& clustering,
                   const unsigned currentSize,
                   const float score,
                   const double elapsedTime )
-{
-    
-  boost::filesystem::path outputPath = boost::filesystem::absolute(progOpt.outputDir);
-
+{   
   char cast_clustering_fn[256], cast_statistics_fn[256];
-  char optBuf[80]; char timeBuf[80];
-
-  time_t now = time(0); struct tm tstruct;
-  tstruct = *localtime(&now);
-  
-  strftime(timeBuf, sizeof(timeBuf), "%Y_%m_%d_%H_%M_%S", &tstruct);
+  char optBuf[80]; 
   sprintf( optBuf, "%.2f_%d_%.2f", opt.simi, opt.maxDist, opt.cast );  
 
-  sprintf( cast_statistics_fn, "CAST_statistics_%s.csv", optBuf );  
+  sprintf( cast_statistics_fn, "CAST_statistics_%s.txt", optBuf );  
   sprintf( cast_clustering_fn, "CAST_clustering_%s.csv", optBuf );
 
-  outputPath /= timeBuf;
-  boost::filesystem::create_directories(outputPath);
   saveClustering( clustering, currentSize, (outputPath / cast_clustering_fn).string() ) ;
   saveStatistics( clustering, score, elapsedTime, (outputPath / cast_statistics_fn).string() );
 }
@@ -236,7 +278,7 @@ static const char SEPARATOR = ',';
 
 void saveClustering( const CAST_Partition& clustering, const unsigned currentSize, std::string clustFN )  {
   size_t currentLatentIndex = currentSize;
-  std::ofstream clustOut;
+  std::ofstream clustOut(clustFN);
   clustOut << ID << SEPARATOR << LATENT << SEPARATOR << PARENT << SEPARATOR
            << LEVEL << SEPARATOR << CARDINALITY << "\n";  // writes header
 
@@ -258,11 +300,11 @@ void saveClustering( const CAST_Partition& clustering, const unsigned currentSiz
 }
 
 void saveStatistics( const CAST_Partition& clustering, const float score, const float elapsedTime, std::string statisticFN ) {
-  std::cout << "saving statistics into: " << statisticFN << std::endl;
 
   std::ofstream statOut(statisticFN);
-  std::cout << "CAST clustering gives: 0 " << clustering.size() << " clusters. "
-            << "Scores: " << score << ". "
-            << "Takes: " << utility::timeDisplay(elapsedTime) << std::endl;
+  statOut << "CAST clustering gives: 0 " << clustering.size() << " clusters. "
+          << "Scores: " << score << ". "
+          << "Takes: " << utility::timeDisplay(elapsedTime) << std::endl;
   statOut.close();
 }
+ 

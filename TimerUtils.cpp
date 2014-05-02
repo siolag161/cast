@@ -86,8 +86,8 @@ void Timer::restart()
 }
 
 std::string Timer::display() { 
-  double seconds = getElapsedTime();
-  return (timeDisplay(seconds));
+  double seconds = getElapsedTimeInSec();
+  return timeDisplay(seconds);
 }
  
 }

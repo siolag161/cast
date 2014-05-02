@@ -25,13 +25,13 @@ struct RangeIterator {
   RangeIterator(const Range<T, TYPE> & range, const T curr, const T step):
       m_range(range), m_curr(curr), m_step(step) {}
 
-  bool operator != (const RangeIterator<T,TYPE>& rhs) { return ( m_curr <= rhs.m_curr ); }
+  bool operator != (const RangeIterator<T,TYPE>& rhs) { return ( m_curr < rhs.m_curr ); }
 
   const RangeIterator<T, TYPE>& operator++() {
     increment(Int2Type<TYPE>());
     return *this;
   }
-  
+   
   const RangeIterator<T,TYPE> operator++() const {
     RangeIterator tmp(m_range, m_curr, m_step);
     //increment(TYPE);

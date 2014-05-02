@@ -70,16 +70,21 @@ class Timer
 
 inline static std::string timeDisplay( double seconds ) {
   std::ostringstream result;
-  if (seconds > 1) {      
-    long secs = seconds / (long)1;
-    int hours = (secs / 3600);
-    int minutes = (secs / 60) % 60;
-    int s = secs % 60;
-    result << hours << " (hours), " << minutes << " (minutes) " << s << " (seconds).";
-  }
-  else {
+  long secs = seconds / (long)1;
+  int hours = (secs / 3600);
+  int minutes = (secs / 60) % 60;
+  int s = secs % 60;
+
+  if ( secs < 60 )  {
     result << seconds << " (seconds).";
-  }
+
+  } else if (secs < 3600) {
+    result << minutes << " (minutes) " << s << " (seconds).";
+
+  } else {
+    result << hours << " (hours), " << minutes << " (minutes) " << s << " (seconds)";
+  }  
+
   return result.str();
 }
 
